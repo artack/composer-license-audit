@@ -1,0 +1,34 @@
+name: License Audit with Composer
+author: Patrick Landolt
+description: Generate a license summary of Composer dependencies and print it to the workflow log.
+inputs:
+  composer-path:
+    description: Path to the Composer executable.
+    required: false
+    default: composer
+  use-locked:
+    description: When true, run composer licenses with --locked to read from composer.lock instead of installed packages.
+    required: false
+    default: "false"
+  allowed-licenses:
+    description: YAML-style multiline list of allowed licenses; when set, packages are marked ✅/❌ based on whether all licenses are allowed.
+    required: false
+    default: ""
+  fail-hard:
+    description: When true (default), fail the action if any package uses a license outside the allowed list.
+    required: false
+    default: "true"
+  github-token:
+    description: GitHub token used to create or update PR comments (defaults to github.token).
+    required: false
+    default: ""
+runs:
+  using: composite
+  steps:
+    - name: Generate license summary
+      shell: bash
+      env:
+        GITHUB_TOKEN: ${{ inputs.github-token != '' && inputs.github-token || github.token }}
+        GITHUB_EVENT_NUMBER: ${{ github.event.number }}
+      run: |
+        "${GITHUB_ACTION_PATH}/src/license-summary.sh" "${{ inputs.composer-path }}" "${{ inputs.use-locked }}" "${{ inputs.allowed-licenses }}" "${{ inputs.fail-hard }}"

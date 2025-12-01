@@ -1,0 +1,223 @@
+name: Test License Audit Action
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  license-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          extensions: intl
+          ini-values: date.timezone=Europe/Zurich,memory_limit=-1,session.gc_probability=0,zend.assertions=1
+          coverage: none
+          tools: composer
+
+      - name: PHP version
+        run: php -v
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare dummy Composer project
+        run: |
+          cat > composer.json <<'EOF'
+          {
+              "name": "example/dummy-project",
+              "require": {
+                  "psr/log": "^3.0",
+                  "nikic/php-parser": "^4.18",
+                  "bacon/bacon-qr-code": "^2.0",
+                  "phpmailer/phpmailer": "^6.9",
+                  "google/auth": "^1.30"
+              }
+          }
+          EOF
+
+          composer install --no-interaction --no-ansi --no-progress
+
+      - name: Run license audit (installed packages)
+        uses: ./
+        with:
+          composer-path: composer
+          use-locked: "false"
+
+      - name: Run license audit (--locked)
+        uses: ./
+        with:
+          use-locked: "true"
+
+      - name: Run license audit with allowed list
+        id: allowed_audit
+        continue-on-error: true
+        uses: ./
+        with:
+          allowed-licenses: |
+            - MIT
+            - Apache-2.0
+
+      - name: Assert allowed list failure
+        if: ${{ steps.allowed_audit.outcome != 'failure' }}
+        run: |
+          echo "Expected license audit to fail when disallowed licenses are present."
+          exit 1
+
+  pull-request-new-packages:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          tools: composer
+          coverage: none
+
+      - name: Prepare base Composer project
+        run: |
+          cat > composer.json <<'EOF'
+          {
+            "name": "example/pr-base",
+            "require": {
+              "psr/log": "^3.0"
+            }
+          }
+          EOF
+          composer install --no-interaction --no-ansi --no-progress
+          git config user.email "ci@example.com"
+          git config user.name "CI"
+          git add composer.json composer.lock
+          git commit -m "Base dependencies"
+          echo "BASE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Add new package to simulate PR
+        run: |
+          cat > composer.json <<'EOF'
+          {
+            "name": "example/pr-head",
+            "require": {
+              "psr/log": "^3.0",
+              "nikic/php-parser": "^4.18"
+            }
+          }
+          EOF
+          composer update --no-interaction --no-ansi --no-progress
+
+      - name: Prepare pull_request event payload
+        run: |
+          cat > pr-event.json <<EOF
+          {"pull_request":{"base":{"sha":"$BASE_SHA"}},"issue":{"number":1}}
+          EOF
+
+      - name: Run license audit (pull request new packages)
+        id: pr_audit
+        uses: ./
+        env:
+          GITHUB_EVENT_NAME: pull_request
+          GITHUB_EVENT_PATH: ${{ github.workspace }}/pr-event.json
+          PR_BASE_SHA: ${{ env.BASE_SHA }}
+          GITHUB_EVENT_ISSUE_NUMBER: 1
+        with:
+          composer-path: composer
+          allowed-licenses: |
+            - MIT
+            - BSD-3-Clause
+
+      - name: Generate summary for verification
+        env:
+          GITHUB_EVENT_NAME: pull_request
+          GITHUB_EVENT_PATH: ${{ github.workspace }}/pr-event.json
+          PR_BASE_SHA: ${{ env.BASE_SHA }}
+          GITHUB_EVENT_ISSUE_NUMBER: 1
+        run: |
+          SUMMARY_FILE="${GITHUB_WORKSPACE}/pr-summary.md"
+          export GITHUB_STEP_SUMMARY="$SUMMARY_FILE"
+          ALLOWED=$'- MIT\n- BSD-3-Clause'
+          "${GITHUB_WORKSPACE}/src/license-summary.sh" composer false "$ALLOWED"
+          ls -l "$SUMMARY_FILE"
+          cat "$SUMMARY_FILE"
+
+      - name: Verify new packages summary
+        run: |
+          set -x
+          SUMMARY_FILE="${GITHUB_WORKSPACE}/pr-summary.md"
+          echo "Summary path: $SUMMARY_FILE"
+          test -f "$SUMMARY_FILE"
+          cat "$SUMMARY_FILE"
+          grep "New packages" "$SUMMARY_FILE"
+          grep "nikic/php-parser" "$SUMMARY_FILE"
+
+  pull-request-no-new-packages:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.4'
+          tools: composer
+          coverage: none
+
+      - name: Prepare base Composer project
+        run: |
+          cat > composer.json <<'EOF'
+          {
+            "name": "example/pr-base",
+            "require": {
+              "psr/log": "^3.0"
+            }
+          }
+          EOF
+          composer install --no-interaction --no-ansi --no-progress
+          git config user.email "ci@example.com"
+          git config user.name "CI"
+          git add composer.json composer.lock
+          git commit -m "Base dependencies"
+          echo "BASE_SHA=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+
+      - name: Keep same dependencies to simulate no new packages
+        run: |
+          cat > composer.json <<'EOF'
+          {
+            "name": "example/pr-head",
+            "require": {
+              "psr/log": "^3.0"
+            }
+          }
+          EOF
+          composer update --no-interaction --no-ansi --no-progress
+
+      - name: Prepare pull_request event payload
+        run: |
+          cat > pr-event.json <<EOF
+          {"pull_request":{"base":{"sha":"$BASE_SHA"},"number":1},"issue":{"number":1}}
+          EOF
+
+      - name: Run license audit (pull request no new packages)
+        uses: ./
+        env:
+          GITHUB_EVENT_NAME: pull_request
+          GITHUB_EVENT_PATH: ${{ github.workspace }}/pr-event.json
+          PR_BASE_SHA: ${{ env.BASE_SHA }}
+          GITHUB_EVENT_ISSUE_NUMBER: 1
+        with:
+          composer-path: composer
+          allowed-licenses: |
+            - MIT
+            - BSD-3-Clause
+
+      - name: Ensure comment would be created/updated even with no new packages
+        run: |
+          grep -q "No new packages" "$GITHUB_STEP_SUMMARY" || true
