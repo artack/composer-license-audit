@@ -98,7 +98,7 @@ jobs:
           if GITHUB_STEP_SUMMARY="$RUNNER_TEMP/summary-hard.md" src/license-summary.sh composer false "$ALLOWED" true > /dev/null 2> "$RUNNER_TEMP/err-hard.txt"; then
             echo "Expected non-zero exit with fail-hard=true"; exit 1
           fi
-          grep -q 'Found disallowed licenses' "$RUNNER_TEMP/err-hard.txt"
+          grep -q 'Found packages with no license in the allowed list' "$RUNNER_TEMP/err-hard.txt"
 
           # ...and "true" is what the action passes when fail-hard is not given.
           grep -A3 '^  fail-hard:' action.yml | grep -q 'default: "true"'

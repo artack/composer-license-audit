@@ -11,11 +11,11 @@ inputs:
     required: false
     default: "false"
   allowed-licenses:
-    description: YAML-style multiline list of allowed licenses; when set, packages are marked ✅/❌ based on whether all licenses are allowed.
+    description: YAML-style multiline list of allowed licenses; when set, packages are marked ✅/❌ based on whether at least one of their licenses is allowed.
     required: false
     default: ""
   fail-hard:
-    description: When true (default), fail the action if any package uses a license outside the allowed list.
+    description: When true (default), fail the action if any package has no license in the allowed list.
     required: false
     default: "true"
   github-token:

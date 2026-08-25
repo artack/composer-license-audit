@@ -78,11 +78,11 @@ ALLOWED=$'- MIT\n- Apache-2.0'
 
 # --- allowlist ---------------------------------------------------------------
 
-@test "fails with exit 1 when a license is outside the allowlist" {
+@test "fails with exit 1 when a package has no license in the allowlist" {
   use_fixture mixed.json
   run_audit false "$ALLOWED" true
   assert_status 1
-  assert_output_contains "Found disallowed licenses not in the allowed list."
+  assert_output_contains "Found packages with no license in the allowed list."
 }
 
 @test "marks packages ✅/❌ against the allowlist" {
@@ -93,10 +93,10 @@ ALLOWED=$'- MIT\n- Apache-2.0'
   assert_output_contains "vendor/gpl-only                v4.0.0          ❌ GPL-3.0-only"
 }
 
-@test "marks a package ❌ when only one of its licenses is disallowed" {
+@test "marks a dual-licensed package ✅ when one of its licenses is allowed" {
   use_fixture mixed.json
   run_audit false "$ALLOWED" true
-  assert_output_contains "vendor/dual-licensed           v3.1.0          ❌ MIT, GPL-2.0-or-later"
+  assert_output_contains "vendor/dual-licensed           v3.1.0          ✅ MIT, GPL-2.0-or-later"
 }
 
 @test "treats UNKNOWN as disallowed unless explicitly allowed" {
@@ -114,6 +114,9 @@ ALLOWED=$'- MIT\n- Apache-2.0'
   assert_summary_contains "| MIT | 2 | ✅ |"
   assert_summary_contains "| GPL-3.0-only | 1 | ❌ |"
   assert_summary_contains "| vendor/gpl-only | v4.0.0 | GPL-3.0-only | ❌ |"
+  # The counts table judges each license on its own; the package table judges the package.
+  assert_summary_contains "| GPL-2.0-or-later | 1 | ❌ |"
+  assert_summary_contains "| vendor/dual-licensed | v3.1.0 | MIT, GPL-2.0-or-later | ✅ |"
 }
 
 @test "summary lists the allowlist sorted and comma-separated" {
@@ -148,7 +151,7 @@ ALLOWED=$'- MIT\n- Apache-2.0'
   run_audit false "$ALLOWED" false
   assert_status 0
   assert_output_contains "❌"
-  assert_output_lacks "Found disallowed licenses"
+  assert_output_lacks "Found packages with no license"
 }
 
 @test "fail-hard is case-insensitive" {

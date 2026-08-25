@@ -435,6 +435,6 @@ ${comment_timestamp}"
 fi
 
 if (( allowed_check_enabled && fail_hard_enabled && violations_found )); then
-  echo "Found disallowed licenses not in the allowed list." >&2
+  echo "Found packages with no license in the allowed list." >&2
   exit 1
 fi

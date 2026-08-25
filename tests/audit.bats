@@ -45,14 +45,21 @@ assert_field() {
   assert_field '[.packages[].allowed] | unique' '[null]'
 }
 
-@test "allowed is true only when every license of the package is in the allowlist" {
+@test "allowed is true when at least one license of the package is in the allowlist" {
   audit mixed.json '["MIT","Apache-2.0"]'
   assert_field '.allowlist_enabled' true
   assert_field '.has_violations' true
   assert_field '.packages[] | select(.name == "vendor/mit-only") | .allowed' true
   assert_field '.packages[] | select(.name == "vendor/apache-only") | .allowed' true
-  assert_field '.packages[] | select(.name == "vendor/dual-licensed") | .allowed' false
+  assert_field '.packages[] | select(.name == "vendor/dual-licensed") | .allowed' true
   assert_field '.packages[] | select(.name == "vendor/gpl-only") | .allowed' false
+}
+
+@test "a multi-licensed package is disallowed only when none of its licenses is in the allowlist" {
+  audit mixed.json '["Apache-2.0"]'
+  assert_field '.packages[] | select(.name == "vendor/dual-licensed") | .allowed' false
+  audit mixed.json '["GPL-2.0-or-later"]'
+  assert_field '.packages[] | select(.name == "vendor/dual-licensed") | .allowed' true
 }
 
 @test "UNKNOWN is a license like any other: disallowed unless listed" {

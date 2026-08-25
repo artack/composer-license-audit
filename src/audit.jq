@@ -20,8 +20,10 @@ def normalize_license($licenses):
 
 def allowlist_enabled: $allowlist != null and ($allowlist | length) > 0;
 
+# Composer treats multiple entries in `license` as a disjunction (the consumer may pick any of
+# them), so a package is allowed as soon as one of its licenses is in the allowlist.
 def allowed_of($licenses):
-  if allowlist_enabled then all($licenses[]; . as $lic | any($allowlist[]; . == $lic)) else null end;
+  if allowlist_enabled then any($licenses[]; . as $lic | any($allowlist[]; . == $lic)) else null end;
 
 def base_names:
   if ($base | length) == 0 or $base[0] == null then null
