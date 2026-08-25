@@ -20,7 +20,7 @@ jobs:
       - uses: shivammathur/setup-php@v2
         with:
           tools: composer
-      - uses: artack/composer-license-audit@v0.1.0
+      - uses: artack/composer-license-audit@v0.2.0
         with:
           use-locked: "true"
           allowed-licenses: |
