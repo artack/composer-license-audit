@@ -79,13 +79,18 @@ if [[ -z "$base_sha_override" ]]; then
   fi
 fi
 
+# A shallow checkout usually lacks the base commit. Fetch exactly that commit (GitHub serves any
+# reachable sha); only if that fails compare against the tip of the base branch, which may have
+# moved since the pull request was last updated, and say so.
 if [[ -n "$base_sha_override" ]] && ! git cat-file -e "${base_sha_override}^{commit}" 2>/dev/null; then
-  if [[ -n "${GITHUB_BASE_REF:-}" ]]; then
-    echo "Base commit ${base_sha_override} not present; fetching base ref ${GITHUB_BASE_REF}."
+  echo "Base commit ${base_sha_override} not present; fetching it from origin."
+  git fetch --no-tags --depth=1 origin "$base_sha_override" || true
+  if ! git cat-file -e "${base_sha_override}^{commit}" 2>/dev/null && [[ -n "${GITHUB_BASE_REF:-}" ]]; then
     git fetch --no-tags --depth=1 origin "refs/heads/${GITHUB_BASE_REF}:refs/remotes/origin/${GITHUB_BASE_REF}" || true
     if git cat-file -e "refs/remotes/origin/${GITHUB_BASE_REF}^{commit}" 2>/dev/null; then
-      base_sha_override="$(git rev-parse "refs/remotes/origin/${GITHUB_BASE_REF}")"
-      echo "Using fetched base sha ${base_sha_override}."
+      tip_sha="$(git rev-parse "refs/remotes/origin/${GITHUB_BASE_REF}")"
+      echo "::warning::Base commit ${base_sha_override} could not be fetched; comparing against the tip of ${GITHUB_BASE_REF} (${tip_sha}) instead. New-package detection is off by whatever changed on ${GITHUB_BASE_REF} since the pull request was last updated."
+      base_sha_override="$tip_sha"
     fi
   fi
 fi

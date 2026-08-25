@@ -54,6 +54,6 @@ The runner needs `composer`, `jq`, `git` and `curl`. With `use-locked: "true"` n
 - **Exit code**: `1` when `fail-hard` is `true`, an allowlist is set and at least one package has no license in it; `0` otherwise.
 
 ## Pull request behavior
-- On `pull_request` and `pull_request_target` events, the action reads `composer.lock` at the PR base commit and marks packages absent from it (in `packages` or `packages-dev`) as new. If the base commit is not in the checkout (shallow clone), the base branch is fetched with `--depth=1`.
+- On `pull_request` and `pull_request_target` events, the action reads `composer.lock` at the PR base commit and marks packages absent from it (in `packages` or `packages-dev`) as new. If the base commit is not in the checkout (shallow clone), it is fetched by sha; if even that fails, the tip of the base branch is used and a workflow warning explains that the comparison may be off.
 - Override the base commit by setting the `PR_BASE_SHA` environment variable (handy for local testing or custom base refs). Without a resolvable base, new-package detection is skipped and the rest of the audit runs unchanged.
 - The action posts one comment per pull request and updates it on later runs (it is found by a hidden `<!-- composer-license-audit:new-packages -->` marker). The comment lists the new packages with their licenses and allowlist status; when there are none it says so and lists all packages in a collapsed section. The comment is skipped, with a log message, when no token or PR number is available.

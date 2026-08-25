@@ -55,6 +55,29 @@ MARKER="<!-- composer-license-audit:new-packages -->"
   assert_summary_lacks "#### New packages"
 }
 
+@test "fetches a base commit missing from a shallow checkout by its sha" {
+  setup_shallow_pr_base base-composer.lock
+  use_fixture pr-head.json
+  start_github_stub
+  run_audit
+  assert_status 0
+  assert_output_contains "Base commit ${PR_BASE_SHA} not present; fetching it from origin."
+  # Compared against the real base, nikic/php-parser is new; against the tip of main it would not be.
+  assert_output_contains "Base packages loaded: yes (sha=${PR_BASE_SHA}); new packages detected: 1"
+  assert_output_lacks "::warning::"
+}
+
+@test "falls back to the base branch tip, with a warning, when the base sha cannot be fetched" {
+  setup_shallow_pr_base base-composer.lock
+  use_fixture pr-head.json
+  start_github_stub
+  export PR_BASE_SHA=0000000000000000000000000000000000000000
+  run_audit
+  assert_status 0
+  assert_output_contains "::warning::Base commit 0000000000000000000000000000000000000000 could not be fetched; comparing against the tip of main (${BASE_TIP_SHA}) instead."
+  assert_output_contains "Base packages loaded: yes (sha=${BASE_TIP_SHA}); new packages detected: 0"
+}
+
 # --- comment creation --------------------------------------------------------
 
 @test "creates a comment listing new packages when none exists" {

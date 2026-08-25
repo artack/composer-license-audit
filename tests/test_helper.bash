@@ -87,6 +87,25 @@ setup_pr_base() {
   export PR_BASE_SHA
 }
 
+# Simulate a shallow PR checkout: an origin with two commits on main (the base lock, then a lock that
+# already contains nikic/php-parser) and a depth-1 clone of the tip as cwd. The base commit is absent
+# from the clone. Exports PR_BASE_SHA (the base commit) and BASE_TIP_SHA (the tip of main).
+setup_shallow_pr_base() {
+  local origin="${BATS_TEST_TMPDIR}/origin"
+  git init -q -b main "$origin"
+  cp "${FIXTURES}/$1" "$origin/composer.lock"
+  git -C "$origin" add composer.lock
+  git -C "$origin" -c user.email=test@example.com -c user.name=Test commit -qm "Base dependencies"
+  PR_BASE_SHA="$(git -C "$origin" rev-parse HEAD)"
+  jq '.packages += [{"name": "nikic/php-parser", "version": "v4.19.5"}]' "$origin/composer.lock" > "$origin/composer.lock.tmp"
+  mv "$origin/composer.lock.tmp" "$origin/composer.lock"
+  git -C "$origin" -c user.email=test@example.com -c user.name=Test commit -qam "Newer base"
+  BASE_TIP_SHA="$(git -C "$origin" rev-parse HEAD)"
+  git clone -q --depth=1 "file://${origin}" "${BATS_TEST_TMPDIR}/work"
+  cd "${BATS_TEST_TMPDIR}/work" || return 1
+  export PR_BASE_SHA BASE_TIP_SHA GITHUB_BASE_REF=main
+}
+
 # --- GitHub API stub --------------------------------------------------------
 
 # start_github_stub [responses.json] -- starts the stub and points GITHUB_API_URL at it.
