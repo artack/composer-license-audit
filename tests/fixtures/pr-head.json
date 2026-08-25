@@ -1,0 +1,9 @@
+{
+  "name": "example/pr-head",
+  "version": "1.0.0",
+  "license": ["MIT"],
+  "dependencies": {
+    "psr/log": {"version": "3.0.2", "license": ["MIT"]},
+    "nikic/php-parser": {"version": "v4.19.5", "license": ["BSD-3-Clause"]}
+  }
+}

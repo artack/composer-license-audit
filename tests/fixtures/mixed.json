@@ -1,0 +1,13 @@
+{
+  "name": "example/fixture",
+  "version": "1.0.0",
+  "license": ["MIT"],
+  "dependencies": {
+    "vendor/mit-only": {"version": "v1.2.3", "license": ["MIT"]},
+    "vendor/apache-only": {"version": "v2.0.0", "license": ["Apache-2.0"]},
+    "vendor/dual-licensed": {"version": "v3.1.0", "license": ["MIT", "GPL-2.0-or-later"]},
+    "vendor/no-license": {"version": "v0.9.0", "license": []},
+    "vendor/null-license": {"version": "v0.1.0", "license": null},
+    "vendor/gpl-only": {"version": "v4.0.0", "license": ["GPL-3.0-only"]}
+  }
+}

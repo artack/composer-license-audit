@@ -4,17 +4,21 @@
 - Root contains `action.yml` (composite action entry), `README.md`, and this guide.
 - `src/license-summary.sh`: Bash script that runs `composer licenses` and formats the summary.
 - `.github/workflows/test.yml`: Self-test workflow creating a dummy Composer project and exercising the action with and without `--locked`.
+- `tests/*.bats`: Bats suites for `src/license-summary.sh`; `tests/test_helper.bash` holds shared setup and assertions. `tests/fixtures/bin/composer` is a PATH shim standing in for `composer licenses --format=json` (fed by JSON fixtures in `tests/fixtures/`), and `tests/fixtures/github-api-stub.py` is a local GitHub REST stub for the PR-comment tests.
 
 ## Build, Test, and Development Commands
 - Run the test workflow locally with Act (requires Docker): `act -j license-audit --container-architecture linux/amd64 -P ubuntu-latest=shivammathur/node:latest`.
 - Execute the license script directly (from repo root): `src/license-summary.sh composer false` or `src/license-summary.sh composer true` (second arg toggles `--locked`).
+- Run the Bats suites (no Docker or network; needs `bats`, `jq`, `python3`): `bats tests`. Lint: `shellcheck -S warning src/license-summary.sh tests/test_helper.bash tests/fixtures/bin/composer` and `actionlint`.
 - Compose action invocation (example step):  
   ```yaml
   - uses: ./
     with:
       composer-path: composer
       use-locked: "true"
-      allowed-licenses: "MIT,Apache-2.0"
+      allowed-licenses: |
+        - MIT
+        - Apache-2.0
   ```
 
 ## Coding Style & Naming Conventions
@@ -23,7 +27,8 @@
 - File naming: hyphen-separated for scripts (e.g., `license-summary.sh`); workflows in `.github/workflows` with descriptive filenames.
 
 ## Testing Guidelines
-- Primary check is the Act run above (same command as in Build section); ensure output matches expected license counts and alignment.
+- Run `bats tests` first; it is fast. `license-summary.bats` covers grouping, `UNKNOWN` normalization, allowlist parsing, `fail-hard`, `--locked` pass-through and the empty-project path; `pr-comment.bats` covers base comparison and comment create/update/paging against the API stub. Extend them when changing output formatting (expected rows are hardcoded, including padding) or the comment body.
+- The Act run above (same command as in Build section) covers the real Composer project plus PR base comparison; ensure output matches expected license counts and alignment.
 - When changing `src/license-summary.sh`, test both modes (installed and `--locked`) and at least one package with multiple license entries to confirm grouping.
 - If supplying `allowed-licenses`, confirm ✅/❌ markers correctly flag packages outside the allowlist.
 - Keep dummy dependencies minimal to reduce runtime; avoid network-heavy additions.

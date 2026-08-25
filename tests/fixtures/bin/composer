@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+# PATH shim for `composer licenses --format=json`: prints the fixture named by STUB_COMPOSER_JSON.
+set -euo pipefail
+if [[ "${1:-}" != "licenses" ]]; then
+  echo "composer stub: unsupported command '${1:-}'" >&2
+  exit 2
+fi
+# Record the args so tests can assert on --locked being passed through.
+if [[ -n "${STUB_COMPOSER_ARGS_FILE:-}" ]]; then
+  printf '%s\n' "$*" > "$STUB_COMPOSER_ARGS_FILE"
+fi
+cat "${STUB_COMPOSER_JSON:?STUB_COMPOSER_JSON not set}"

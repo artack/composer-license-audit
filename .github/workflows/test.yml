@@ -24,9 +24,6 @@ jobs:
       - name: PHP version
         run: php -v
 
-      - name: Checkout
-        uses: actions/checkout@v4
-
       - name: Prepare dummy Composer project
         run: |
           cat > composer.json <<'EOF'
@@ -69,6 +66,53 @@ jobs:
         run: |
           echo "Expected license audit to fail when disallowed licenses are present."
           exit 1
+
+      - name: Run license audit with allowed list and fail-hard disabled
+        id: soft_audit
+        continue-on-error: true
+        uses: ./
+        with:
+          fail-hard: "false"
+          allowed-licenses: |
+            - MIT
+            - Apache-2.0
+
+      - name: Assert fail-hard=false does not fail the step
+        if: ${{ steps.soft_audit.outcome != 'success' }}
+        run: |
+          echo "Expected license audit to succeed when fail-hard is false."
+          exit 1
+
+      - name: Verify report content (installed, --locked, fail-hard)
+        run: |
+          ALLOWED=$'- MIT\n- Apache-2.0'
+          expected_count="$(composer licenses --format=json | jq '.dependencies | length')"
+
+          # Installed packages, no allowlist: every dependency must appear in the summary.
+          SUMMARY="$RUNNER_TEMP/summary-installed.md"
+          GITHUB_STEP_SUMMARY="$SUMMARY" src/license-summary.sh composer false > "$RUNNER_TEMP/out-installed.txt"
+          grep -q '^- Source: .installed packages.$' "$SUMMARY"
+          grep -q '^| psr/log | ' "$SUMMARY"
+          actual_count="$(grep -c '^| [a-z0-9_.-]*/[a-z0-9_.-]* | ' "$SUMMARY")"
+          test "$actual_count" -eq "$expected_count"
+
+          # --locked reports the lock file as source.
+          SUMMARY="$RUNNER_TEMP/summary-locked.md"
+          GITHUB_STEP_SUMMARY="$SUMMARY" src/license-summary.sh composer true > /dev/null
+          grep -q '^- Source: .composer.lock (--locked).$' "$SUMMARY"
+
+          # fail-hard=false: exit 0, but violations still marked.
+          SUMMARY="$RUNNER_TEMP/summary-soft.md"
+          GITHUB_STEP_SUMMARY="$SUMMARY" src/license-summary.sh composer false "$ALLOWED" false > "$RUNNER_TEMP/out-soft.txt"
+          grep -q '^psr/log .* ✅ MIT$' "$RUNNER_TEMP/out-soft.txt"
+          grep -q '^phpmailer/phpmailer .* ❌ ' "$RUNNER_TEMP/out-soft.txt"
+          grep -q '^| phpmailer/phpmailer | .* | ❌ |$' "$SUMMARY"
+
+          # fail-hard=true: exit 1 with the reason on stderr.
+          if GITHUB_STEP_SUMMARY="$RUNNER_TEMP/summary-hard.md" src/license-summary.sh composer false "$ALLOWED" true > /dev/null 2> "$RUNNER_TEMP/err-hard.txt"; then
+            echo "Expected non-zero exit with fail-hard=true"; exit 1
+          fi
+          grep -q 'Found disallowed licenses' "$RUNNER_TEMP/err-hard.txt"
 
   pull-request-new-packages:
     runs-on: ubuntu-latest
@@ -154,8 +198,13 @@ jobs:
           echo "Summary path: $SUMMARY_FILE"
           test -f "$SUMMARY_FILE"
           cat "$SUMMARY_FILE"
-          grep "New packages" "$SUMMARY_FILE"
-          grep "nikic/php-parser" "$SUMMARY_FILE"
+          grep -q "#### New packages" "$SUMMARY_FILE"
+          # Only rows after the "New packages" heading count; psr/log is in the base and must not be there.
+          new_section="$(sed -n '/#### New packages/,$p' "$SUMMARY_FILE")"
+          grep -q '^| nikic/php-parser | .* | BSD-3-Clause | ✅ |$' <<<"$new_section"
+          if grep -q '^| psr/log |' <<<"$new_section"; then
+            echo "psr/log is in the base and must not be reported as new."; exit 1
+          fi
 
   pull-request-no-new-packages:
     runs-on: ubuntu-latest
@@ -218,6 +267,67 @@ jobs:
             - MIT
             - BSD-3-Clause
 
-      - name: Ensure comment would be created/updated even with no new packages
+      - name: Verify no-new-packages summary
+        env:
+          GITHUB_EVENT_NAME: pull_request
+          GITHUB_EVENT_PATH: ${{ github.workspace }}/pr-event.json
+          PR_BASE_SHA: ${{ env.BASE_SHA }}
         run: |
-          grep -q "No new packages" "$GITHUB_STEP_SUMMARY" || true
+          set -o pipefail
+          SUMMARY_FILE="${GITHUB_WORKSPACE}/pr-summary.md"
+          export GITHUB_STEP_SUMMARY="$SUMMARY_FILE"
+          ALLOWED=$'- MIT\n- BSD-3-Clause'
+          "${GITHUB_WORKSPACE}/src/license-summary.sh" composer false "$ALLOWED" | tee "$RUNNER_TEMP/out.txt"
+          cat "$SUMMARY_FILE"
+          grep -q "Base packages loaded: yes" "$RUNNER_TEMP/out.txt"
+          grep -q "new packages detected: 0" "$RUNNER_TEMP/out.txt"
+          grep -q "#### New packages" "$SUMMARY_FILE"
+          grep -q "No new packages compared to the PR base." "$SUMMARY_FILE"
+
+  unit-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install bats if missing
+        run: |
+          if ! command -v bats >/dev/null; then
+            if command -v sudo >/dev/null; then sudo apt-get update -qq && sudo apt-get install -y -qq bats
+            else apt-get update -qq && apt-get install -y -qq bats; fi
+          fi
+          bats --version
+          python3 --version
+          jq --version
+
+      - name: Run Bats suites
+        run: bats --timing tests
+
+  shellcheck:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install shellcheck if missing
+        run: |
+          if ! command -v shellcheck >/dev/null; then
+            if command -v sudo >/dev/null; then sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+            else apt-get update -qq && apt-get install -y -qq shellcheck; fi
+          fi
+          shellcheck --version
+
+      - name: Shellcheck
+        run: shellcheck -S warning src/license-summary.sh tests/test_helper.bash tests/fixtures/bin/composer
+
+  actionlint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install actionlint
+        run: bash <(curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash) 1.7.12
+
+      - name: actionlint
+        run: ./actionlint -color
