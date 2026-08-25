@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
@@ -51,21 +51,6 @@ jobs:
         uses: ./
         with:
           use-locked: "true"
-
-      - name: Run license audit with allowed list
-        id: allowed_audit
-        continue-on-error: true
-        uses: ./
-        with:
-          allowed-licenses: |
-            - MIT
-            - Apache-2.0
-
-      - name: Assert allowed list failure
-        if: ${{ steps.allowed_audit.outcome != 'failure' }}
-        run: |
-          echo "Expected license audit to fail when disallowed licenses are present."
-          exit 1
 
       - name: Run license audit with allowed list and fail-hard disabled
         id: soft_audit
@@ -108,17 +93,21 @@ jobs:
           grep -q '^phpmailer/phpmailer .* ❌ ' "$RUNNER_TEMP/out-soft.txt"
           grep -q '^| phpmailer/phpmailer | .* | ❌ |$' "$SUMMARY"
 
-          # fail-hard=true: exit 1 with the reason on stderr.
+          # fail-hard=true: exit 1 with the reason on stderr. Not run through `uses: ./` because a
+          # failing action step produces an error annotation even with continue-on-error.
           if GITHUB_STEP_SUMMARY="$RUNNER_TEMP/summary-hard.md" src/license-summary.sh composer false "$ALLOWED" true > /dev/null 2> "$RUNNER_TEMP/err-hard.txt"; then
             echo "Expected non-zero exit with fail-hard=true"; exit 1
           fi
           grep -q 'Found disallowed licenses' "$RUNNER_TEMP/err-hard.txt"
 
+          # ...and "true" is what the action passes when fail-hard is not given.
+          grep -A3 '^  fail-hard:' action.yml | grep -q 'default: "true"'
+
   pull-request-new-packages:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
@@ -210,7 +199,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Setup PHP
         uses: shivammathur/setup-php@v2
@@ -288,7 +277,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install bats if missing
         run: |
@@ -307,7 +296,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install shellcheck if missing
         run: |
@@ -324,7 +313,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Install actionlint
         run: bash <(curl -sSfL https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash) 1.7.12
