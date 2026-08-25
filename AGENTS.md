@@ -2,9 +2,10 @@
 
 ## Project Structure & Module Organization
 - Root contains `action.yml` (composite action entry), `README.md`, and this guide.
-- `src/license-summary.sh`: Bash script that runs `composer licenses` and formats the summary.
+- `src/license-summary.sh`: Bash script that runs `composer licenses`, resolves the PR base, and renders the log, step summary and PR comment.
+- `src/audit.jq`: the audit result. One jq program that turns the licenses JSON, the allowlist and the base `composer.lock` into a single document (`packages[].allowed`, `packages[].is_new`, `counts`, `has_violations`). Renderers only format it; no allowlist or base decision is made anywhere else. See `CONTEXT.md` for the vocabulary.
 - `.github/workflows/test.yml`: Self-test workflow creating a dummy Composer project and exercising the action with and without `--locked`.
-- `tests/*.bats`: Bats suites for `src/license-summary.sh`; `tests/test_helper.bash` holds shared setup and assertions. `tests/fixtures/bin/composer` is a PATH shim standing in for `composer licenses --format=json` (fed by JSON fixtures in `tests/fixtures/`), and `tests/fixtures/github-api-stub.py` is a local GitHub REST stub for the PR-comment tests.
+- `tests/*.bats`: Bats suites; `audit.bats` tests `src/audit.jq` directly (fixtures in, JSON out), the others drive `src/license-summary.sh`; `tests/test_helper.bash` holds shared setup and assertions. `tests/fixtures/bin/composer` is a PATH shim standing in for `composer licenses --format=json` (fed by JSON fixtures in `tests/fixtures/`), and `tests/fixtures/github-api-stub.py` is a local GitHub REST stub for the PR-comment tests.
 
 ## Build, Test, and Development Commands
 - Run the test workflow locally with Act (requires Docker): `act -j license-audit --container-architecture linux/amd64 -P ubuntu-latest=shivammathur/node:latest`.
@@ -27,7 +28,7 @@
 - File naming: hyphen-separated for scripts (e.g., `license-summary.sh`); workflows in `.github/workflows` with descriptive filenames.
 
 ## Testing Guidelines
-- Run `bats tests` first; it is fast. `license-summary.bats` covers grouping, `UNKNOWN` normalization, allowlist parsing, `fail-hard`, `--locked` pass-through and the empty-project path; `pr-comment.bats` covers base comparison and comment create/update/paging against the API stub. Extend them when changing output formatting (expected rows are hardcoded, including padding) or the comment body.
+- Run `bats tests` first; it is fast. `audit.bats` pins the audit result schema (tri-state `allowed`/`is_new`, sort orders, `has_violations`); `license-summary.bats` covers grouping, `UNKNOWN` normalization, allowlist parsing, `fail-hard`, `--locked` pass-through and the empty-project path; `pr-comment.bats` covers base comparison and comment create/update/paging against the API stub. Extend them when changing output formatting (expected rows are hardcoded, including padding) or the comment body.
 - The Act run above (same command as in Build section) covers the real Composer project plus PR base comparison; ensure output matches expected license counts and alignment.
 - When changing `src/license-summary.sh`, test both modes (installed and `--locked`) and at least one package with multiple license entries to confirm grouping.
 - If supplying `allowed-licenses`, confirm ✅/❌ markers correctly flag packages outside the allowlist.

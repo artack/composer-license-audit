@@ -42,45 +42,9 @@ if [[ -n "${GITHUB_ACTION_REPOSITORY:-}" || -n "${GITHUB_ACTION_REF:-}" ]]; then
 fi
 
 base_debug="Base packages loaded: no"
-license_counts_tsv=$(printf '%s\n' "$json_output" | jq -r '
-  def normalize_license($licenses):
-    if $licenses == null then ["UNKNOWN"]
-    elif ($licenses | type) == "array" then (if ($licenses | length) == 0 then ["UNKNOWN"] else $licenses end)
-    else [$licenses]
-    end;
+audit_program="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/audit.jq"
 
-  (.dependencies // {})
-  | to_entries
-  | map(normalize_license(.value.license))
-  | flatten
-  | sort
-  | group_by(.)
-  | map({license: .[0], count: length})
-  | sort_by(-.count, .license)
-  | .[]
-  | "\(.license)\t\(.count)"
-')
-
-package_details_tsv=$(printf '%s\n' "$json_output" | jq -r '
-  def normalize_license($licenses):
-    if $licenses == null then ["UNKNOWN"]
-    elif ($licenses | type) == "array" then (if ($licenses | length) == 0 then ["UNKNOWN"] else $licenses end)
-    else [$licenses]
-    end;
-
-  (.dependencies // {})
-  | to_entries
-  | map({
-      name: .key,
-      version: (.value.version // "unknown"),
-      licenses: (normalize_license(.value.license) | join(", "))
-    })
-  | sort_by(.name)
-  | .[]
-  | "\(.name)\t\(.version)\t\(.licenses)"
-')
-
-if [[ -z "$license_counts_tsv" ]]; then
+if [[ "$(printf '%s\n' "$json_output" | jq '(.dependencies // {}) | length')" == "0" ]]; then
   echo "No dependency licenses found."
   exit 0
 fi
@@ -102,12 +66,10 @@ fail_hard_normalized="$(echo "$fail_hard" | tr '[:upper:]' '[:lower:]')"
 if [[ "$fail_hard_normalized" == "true" ]]; then
   fail_hard_enabled=1
 fi
-violations_found=0
 
-# Load base composer.lock package names for PR comparisons
-# Load base composer.lock package names for PR comparisons
-declare -A base_packages=()
-base_packages_available=0
+# Resolve the PR base commit; its composer.lock (if any) is written to base_lock_file for the audit.
+base_lock_file="$(mktemp)"
+trap 'rm -f "$base_lock_file"' EXIT
 base_sha_override="${PR_BASE_SHA:-}"
 if [[ -z "$base_sha_override" ]]; then
   if [[ "${GITHUB_EVENT_NAME:-}" == "pull_request" || "${GITHUB_EVENT_NAME:-}" == "pull_request_target" ]]; then
@@ -130,45 +92,34 @@ fi
 
 if [[ -n "$base_sha_override" ]] && git cat-file -e "${base_sha_override}^{commit}" 2>/dev/null; then
   base_lock_json="$(git show "${base_sha_override}:composer.lock" 2>/dev/null || true)"
-  if [[ -n "$base_lock_json" ]]; then
-    base_packages_list="$(printf '%s\n' "$base_lock_json" | jq -r '
-      [
-        (.packages // [] | .[].name),
-        (.["packages-dev"] // [] | .[].name)
-      ]
-      | flatten
-      | .[]
-    ' 2>/dev/null || true)"
-    if [[ -n "$base_packages_list" ]]; then
-      while IFS= read -r pkg; do
-        [[ -z "$pkg" ]] && continue
-        base_packages["$pkg"]=1
-      done <<< "$base_packages_list"
-      if (( ${#base_packages[@]} > 0 )); then
-        base_packages_available=1
-        base_debug="Base packages loaded: yes (sha=${base_sha_override})"
-      fi
-    fi
+  if [[ -n "$base_lock_json" ]] && jq -e . >/dev/null 2>&1 <<<"$base_lock_json"; then
+    printf '%s\n' "$base_lock_json" > "$base_lock_file"
   fi
 fi
 
-license_status_icon() {
-  local licenses="$1"
-  local status_icon="✅"
+# Allowlist as JSON for the audit (null = no allowlist configured).
+allowlist_json="null"
+if (( allowed_check_enabled )); then
+  allowlist_json="$(printf '%s\n' "${!allowed_set[@]}" | jq -R . | jq -cs .)"
+fi
 
-  IFS=',' read -ra license_arr <<< "$licenses"
-  for lic in "${license_arr[@]}"; do
-    local lic_trimmed
-    lic_trimmed="$(echo "$lic" | xargs)"
-    [[ -z "$lic_trimmed" ]] && continue
-    if [[ -z "${allowed_set[$lic_trimmed]:-}" ]]; then
-      status_icon="❌"
-      break
-    fi
-  done
+# The audit result: every allowed/is_new/violation decision is made here, once.
+audit_json="$(printf '%s\n' "$json_output" | jq -c -f "$audit_program" \
+  --argjson allowlist "$allowlist_json" \
+  --slurpfile base "$base_lock_file")"
 
-  echo "$status_icon"
-}
+allowed_check_enabled="$(jq -r 'if .allowlist_enabled then 1 else 0 end' <<<"$audit_json")"
+base_packages_available="$(jq -r 'if .base_available then 1 else 0 end' <<<"$audit_json")"
+violations_found="$(jq -r 'if .has_violations then 1 else 0 end' <<<"$audit_json")"
+if (( base_packages_available )); then
+  base_debug="Base packages loaded: yes (sha=${base_sha_override})"
+fi
+
+# Row projections for the renderers: tab-separated, with the status icon already resolved.
+row_jq='def icon: if .allowed == null then "" elif .allowed then "✅" else "❌" end;'
+license_counts_tsv="$(jq -r "$row_jq"' .counts[] | "\(.license)\t\(.count)\t\(icon)"' <<<"$audit_json")"
+package_details_tsv="$(jq -r "$row_jq"' .packages[] | "\(.name)\t\(.version)\t\(.licenses | join(", "))\t\(icon)"' <<<"$audit_json")"
+new_packages_tsv="$(jq -r "$row_jq"' .packages[] | select(.is_new == true) | "\(.name)\t\(.version)\t\(.licenses | join(", "))\t\(icon)"' <<<"$audit_json")"
 
 formatted_counts=$(printf '%s\n' "$license_counts_tsv" | awk -F '\t' '{printf "%-20s %s\n", $1, $2}')
 
@@ -176,13 +127,10 @@ echo "License counts:"
 printf '%s\n' "$formatted_counts"
 
 new_packages=()
-if (( base_packages_available )) && [[ -n "$package_details_tsv" ]]; then
-  while IFS=$'\t' read -r name version licenses; do
-    [[ -z "$name" ]] && continue
-    if [[ -z "${base_packages[$name]:-}" ]]; then
-      new_packages+=("$name"$'\t'"$version"$'\t'"$licenses")
-    fi
-  done <<< "$package_details_tsv"
+if (( base_packages_available )); then
+  if [[ -n "$new_packages_tsv" ]]; then
+    mapfile -t new_packages <<< "$new_packages_tsv"
+  fi
   new_pkg_count=${#new_packages[@]}
   echo "$base_debug; new packages detected: ${new_pkg_count}"
 else
@@ -192,12 +140,8 @@ fi
 if [[ -n "$package_details_tsv" ]]; then
   echo
   echo "Package licenses:"
-  while IFS=$'\t' read -r name version licenses; do
+  while IFS=$'\t' read -r name version licenses status_icon; do
     if (( allowed_check_enabled )); then
-      status_icon="$(license_status_icon "$licenses")"
-      if [[ "$status_icon" == "❌" ]]; then
-        violations_found=1
-      fi
       printf '%-30s %-15s %-3s %s\n' "$name" "$version" "$status_icon" "$licenses"
     else
       printf '%-30s %-15s %s\n' "$name" "$version" "$licenses"
@@ -209,13 +153,9 @@ if [[ -n "$package_details_tsv" ]]; then
     echo "New packages vs base:"
     if (( ${#new_packages[@]} > 0 )); then
       for row in "${new_packages[@]}"; do
-        IFS=$'\t' read -r name version licenses <<<"$row"
+        IFS=$'\t' read -r name version licenses status_icon <<<"$row"
         [[ -z "$name" ]] && continue
         if (( allowed_check_enabled )); then
-          status_icon="$(license_status_icon "$licenses")"
-          if [[ "$status_icon" == "❌" ]]; then
-            violations_found=1
-          fi
           printf '%-30s %-15s %-3s %s\n' "$name" "$version" "$status_icon" "$licenses"
         else
           printf '%-30s %-15s %s\n' "$name" "$version" "$licenses"
@@ -244,17 +184,13 @@ if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
     if (( allowed_check_enabled )); then
       echo "| License | Count | Status |"
       echo "| --- | --- | --- |"
-      while IFS=$'\t' read -r license count; do
-        status_icon="$(license_status_icon "$license")"
-        if [[ "$status_icon" == "❌" ]]; then
-          violations_found=1
-        fi
+      while IFS=$'\t' read -r license count status_icon; do
         echo "| ${license} | ${count} | ${status_icon} |"
       done <<< "$license_counts_tsv"
     else
       echo "| License | Count |"
       echo "| --- | --- |"
-      while IFS=$'\t' read -r license count; do
+      while IFS=$'\t' read -r license count status_icon; do
         echo "| ${license} | ${count} |"
       done <<< "$license_counts_tsv"
     fi
@@ -266,17 +202,13 @@ if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
       if (( allowed_check_enabled )); then
         echo "| Package | Version | Licenses | Status |"
         echo "| --- | --- | --- | --- |"
-        while IFS=$'\t' read -r name version licenses; do
-          status_icon="$(license_status_icon "$licenses")"
-          if [[ "$status_icon" == "❌" ]]; then
-            violations_found=1
-          fi
+        while IFS=$'\t' read -r name version licenses status_icon; do
           echo "| ${name} | ${version} | ${licenses} | ${status_icon} |"
         done <<< "$package_details_tsv"
       else
         echo "| Package | Version | Licenses |"
         echo "| --- | --- | --- |"
-        while IFS=$'\t' read -r name version licenses; do
+        while IFS=$'\t' read -r name version licenses status_icon; do
           echo "| ${name} | ${version} | ${licenses} |"
         done <<< "$package_details_tsv"
       fi
@@ -295,11 +227,7 @@ if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]] && (( base_packages_available )); then
         echo "| Package | Version | Licenses | Status |"
         echo "| --- | --- | --- | --- |"
         for row in "${new_packages[@]}"; do
-          IFS=$'\t' read -r name version licenses <<<"$row"
-          status_icon="$(license_status_icon "$licenses")"
-          if [[ "$status_icon" == "❌" ]]; then
-            violations_found=1
-          fi
+          IFS=$'\t' read -r name version licenses status_icon <<<"$row"
           echo "| ${name} | ${version} | ${licenses} | ${status_icon} |"
         done
       else
@@ -382,9 +310,8 @@ ${comment_title}
 | --- | --- | --- | --- |
 "
     for row in "${new_packages[@]}"; do
-      IFS=$'\t' read -r name version licenses <<<"$row"
+      IFS=$'\t' read -r name version licenses status_icon <<<"$row"
       [[ -z "$name" ]] && continue
-      status_icon="$(license_status_icon "$licenses")"
       comment_body+="| ${name} | ${version} | ${licenses} | ${status_icon} |
 "
     done
@@ -409,9 +336,8 @@ ${comment_title}
     comment_body+="| Package | Version | Licenses | Status |
 | --- | --- | --- | --- |
 "
-    while IFS=$'\t' read -r name version licenses; do
+    while IFS=$'\t' read -r name version licenses status_icon; do
       [[ -z "$name" ]] && continue
-      status_icon="$(license_status_icon "$licenses")"
       comment_body+="| ${name} | ${version} | ${licenses} | ${status_icon} |
 "
     done <<< "$package_details_tsv"
@@ -419,7 +345,7 @@ ${comment_title}
     comment_body+="| Package | Version | Licenses |
 | --- | --- | --- |
 "
-    while IFS=$'\t' read -r name version licenses; do
+    while IFS=$'\t' read -r name version licenses status_icon; do
       [[ -z "$name" ]] && continue
       comment_body+="| ${name} | ${version} | ${licenses} |
 "
@@ -469,9 +395,8 @@ No new packages detected in this pull request.
     comment_body+="| Package | Version | Licenses | Status |
 | --- | --- | --- | --- |
 "
-    while IFS=$'\t' read -r name version licenses; do
+    while IFS=$'\t' read -r name version licenses status_icon; do
       [[ -z "$name" ]] && continue
-      status_icon="$(license_status_icon "$licenses")"
       comment_body+="| ${name} | ${version} | ${licenses} | ${status_icon} |
 "
     done <<< "$package_details_tsv"
@@ -479,7 +404,7 @@ No new packages detected in this pull request.
     comment_body+="| Package | Version | Licenses |
 | --- | --- | --- |
 "
-    while IFS=$'\t' read -r name version licenses; do
+    while IFS=$'\t' read -r name version licenses status_icon; do
       [[ -z "$name" ]] && continue
       comment_body+="| ${name} | ${version} | ${licenses} |
 "
