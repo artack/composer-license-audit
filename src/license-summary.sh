@@ -237,26 +237,26 @@ if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
     echo "- Commit: \`${GITHUB_SHA}\`"
     if (( allowed_check_enabled )); then
       allowed_sorted="$(printf '%s\n' "${!allowed_set[@]}" | sort)"
-      allowed_display="$(printf '%s\n' "$allowed_sorted" | sed 's/^/`/;s/$/`/' | paste -sd ', ' -)"
+      allowed_display="$(printf '%s\n' "$allowed_sorted" | sed 's/^/`/;s/$/`/' | paste -sd ',' - | sed 's/,/, /g')"
       echo "- Allowed licenses: ${allowed_display}"
     fi
     echo
     if (( allowed_check_enabled )); then
       echo "| License | Count | Status |"
       echo "| --- | --- | --- |"
-      printf '%s\n' "$license_counts_tsv" | while IFS=$'\t' read -r license count; do
+      while IFS=$'\t' read -r license count; do
         status_icon="$(license_status_icon "$license")"
         if [[ "$status_icon" == "❌" ]]; then
           violations_found=1
         fi
         echo "| ${license} | ${count} | ${status_icon} |"
-      done
+      done <<< "$license_counts_tsv"
     else
       echo "| License | Count |"
       echo "| --- | --- |"
-      printf '%s\n' "$license_counts_tsv" | while IFS=$'\t' read -r license count; do
+      while IFS=$'\t' read -r license count; do
         echo "| ${license} | ${count} |"
-      done
+      done <<< "$license_counts_tsv"
     fi
     if [[ -n "$package_details_tsv" ]]; then
       echo
@@ -266,19 +266,19 @@ if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
       if (( allowed_check_enabled )); then
         echo "| Package | Version | Licenses | Status |"
         echo "| --- | --- | --- | --- |"
-        printf '%s\n' "$package_details_tsv" | while IFS=$'\t' read -r name version licenses; do
+        while IFS=$'\t' read -r name version licenses; do
           status_icon="$(license_status_icon "$licenses")"
           if [[ "$status_icon" == "❌" ]]; then
             violations_found=1
           fi
           echo "| ${name} | ${version} | ${licenses} | ${status_icon} |"
-        done
+        done <<< "$package_details_tsv"
       else
         echo "| Package | Version | Licenses |"
         echo "| --- | --- | --- |"
-        printf '%s\n' "$package_details_tsv" | while IFS=$'\t' read -r name version licenses; do
+        while IFS=$'\t' read -r name version licenses; do
           echo "| ${name} | ${version} | ${licenses} |"
-        done
+        done <<< "$package_details_tsv"
       fi
       echo
       echo "</details>"
@@ -368,86 +368,84 @@ find_existing_comment_id() {
   fi
 }
 
-if (( base_packages_available )) && (( ${#new_packages[@]} > 0 )) && [[ -n "${GITHUB_TOKEN:-}" ]]; then
-  if [[ -n "$pr_number" ]]; then
-    api_url="${GITHUB_API_URL:-https://api.github.com}"
-    comment_marker="<!-- composer-license-audit:new-packages -->"
-    comment_title="### Composer License Audit"
-    comment_timestamp="Last checked at \`$(date -u +"%Y-%m-%d %H:%M:%S") UTC\`"
-    comment_body="$comment_marker
+if (( base_packages_available )) && (( ${#new_packages[@]} > 0 )) && [[ -n "${GITHUB_TOKEN:-}" && -n "$pr_number" ]]; then
+  api_url="${GITHUB_API_URL:-https://api.github.com}"
+  comment_marker="<!-- composer-license-audit:new-packages -->"
+  comment_title="### Composer License Audit"
+  comment_timestamp="Last checked at \`$(date -u +"%Y-%m-%d %H:%M:%S") UTC\`"
+  comment_body="$comment_marker
 ${comment_title}
 #### New packages
 "
-    if (( allowed_check_enabled )); then
-      comment_body+="| Package | Version | Licenses | Status |
+  if (( allowed_check_enabled )); then
+    comment_body+="| Package | Version | Licenses | Status |
 | --- | --- | --- | --- |
 "
-      for row in "${new_packages[@]}"; do
-        IFS=$'\t' read -r name version licenses <<<"$row"
-        [[ -z "$name" ]] && continue
-        status_icon="$(license_status_icon "$licenses")"
-        comment_body+="| ${name} | ${version} | ${licenses} | ${status_icon} |
+    for row in "${new_packages[@]}"; do
+      IFS=$'\t' read -r name version licenses <<<"$row"
+      [[ -z "$name" ]] && continue
+      status_icon="$(license_status_icon "$licenses")"
+      comment_body+="| ${name} | ${version} | ${licenses} | ${status_icon} |
 "
-      done
-    else
-      comment_body+="| Package | Version | Licenses |
+    done
+  else
+    comment_body+="| Package | Version | Licenses |
 | --- | --- | --- |
 "
-      for row in "${new_packages[@]}"; do
-        IFS=$'\t' read -r name version licenses <<<"$row"
-        [[ -z "$name" ]] && continue
-        comment_body+="| ${name} | ${version} | ${licenses} |
+    for row in "${new_packages[@]}"; do
+      IFS=$'\t' read -r name version licenses <<<"$row"
+      [[ -z "$name" ]] && continue
+      comment_body+="| ${name} | ${version} | ${licenses} |
 "
-      done
-    fi
-    comment_body+="
+    done
+  fi
+  comment_body+="
 
 <details>
 <summary>All packages</summary>
 
 "
-    if (( allowed_check_enabled )); then
-      comment_body+="| Package | Version | Licenses | Status |
+  if (( allowed_check_enabled )); then
+    comment_body+="| Package | Version | Licenses | Status |
 | --- | --- | --- | --- |
 "
-      while IFS=$'\t' read -r name version licenses; do
-        [[ -z "$name" ]] && continue
-        status_icon="$(license_status_icon "$licenses")"
-        comment_body+="| ${name} | ${version} | ${licenses} | ${status_icon} |
+    while IFS=$'\t' read -r name version licenses; do
+      [[ -z "$name" ]] && continue
+      status_icon="$(license_status_icon "$licenses")"
+      comment_body+="| ${name} | ${version} | ${licenses} | ${status_icon} |
 "
-      done <<< "$package_details_tsv"
-    else
-      comment_body+="| Package | Version | Licenses |
+    done <<< "$package_details_tsv"
+  else
+    comment_body+="| Package | Version | Licenses |
 | --- | --- | --- |
 "
-      while IFS=$'\t' read -r name version licenses; do
-        [[ -z "$name" ]] && continue
-        comment_body+="| ${name} | ${version} | ${licenses} |
+    while IFS=$'\t' read -r name version licenses; do
+      [[ -z "$name" ]] && continue
+      comment_body+="| ${name} | ${version} | ${licenses} |
 "
-      done <<< "$package_details_tsv"
-    fi
-    comment_body+="
+    done <<< "$package_details_tsv"
+  fi
+  comment_body+="
 </details>
 
 ${comment_timestamp}"
 
-    existing_id="$(find_existing_comment_id "$api_url" "$pr_number" "$comment_marker")"
+  existing_id="$(find_existing_comment_id "$api_url" "$pr_number" "$comment_marker")"
 
-    if [[ -n "$existing_id" ]]; then
-      curl -sS -X PATCH \
-        -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-        -H "Accept: application/vnd.github+json" \
-        "${api_url}/repos/${GITHUB_REPOSITORY}/issues/comments/${existing_id}" \
-        -d "$(jq -cn --arg body "$comment_body" '{body:$body}')" >/dev/null || true
-      echo "Updated pull request license summary comment (${existing_id})."
-    else
-      curl -sS -X POST \
-        -H "Authorization: Bearer ${GITHUB_TOKEN}" \
-        -H "Accept: application/vnd.github+json" \
-        "${api_url}/repos/${GITHUB_REPOSITORY}/issues/${pr_number}/comments" \
-        -d "$(jq -cn --arg body "$comment_body" '{body:$body}')" >/dev/null || true
-      echo "Created pull request license summary comment."
-    fi
+  if [[ -n "$existing_id" ]]; then
+    curl -sS -X PATCH \
+      -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+      -H "Accept: application/vnd.github+json" \
+      "${api_url}/repos/${GITHUB_REPOSITORY}/issues/comments/${existing_id}" \
+      -d "$(jq -cn --arg body "$comment_body" '{body:$body}')" >/dev/null || true
+    echo "Updated pull request license summary comment (${existing_id})."
+  else
+    curl -sS -X POST \
+      -H "Authorization: Bearer ${GITHUB_TOKEN}" \
+      -H "Accept: application/vnd.github+json" \
+      "${api_url}/repos/${GITHUB_REPOSITORY}/issues/${pr_number}/comments" \
+      -d "$(jq -cn --arg body "$comment_body" '{body:$body}')" >/dev/null || true
+    echo "Created pull request license summary comment."
   fi
 elif (( base_packages_available )) && [[ -z "${GITHUB_TOKEN:-}" ]]; then
   echo "Skipping PR comment: GITHUB_TOKEN not set or empty."
