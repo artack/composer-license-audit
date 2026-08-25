@@ -12,6 +12,7 @@ Composite action to summarize Composer dependency licenses, surface allowlist st
     - Apache-2.0
     - BSD-3-Clause
   ```
+  Entries are matched literally against the identifiers Composer reports. A package that declares its license as a single SPDX expression string (`"license": "(LGPL-2.1-only or GPL-3.0-or-later)"`, the only way Composer can express an `and` combination) is reported as that one string and is not parsed; it fails the allowlist unless the exact string is listed. This form is rare in practice.
 - `fail-hard` (default: `"true"`): When `true` and `allowed-licenses` is set, the action exits non-zero if any package has no license in the allowlist. Set to `"false"` to only report status without failing.
 
 ## Pull request behavior
