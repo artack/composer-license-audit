@@ -35,7 +35,7 @@ assert_field() {
   assert_field '.has_violations' false
   assert_field '[.packages[].allowed] | unique' '[null]'
   assert_field '[.packages[].is_new] | unique' '[null]'
-  assert_field '[.counts[].allowed] | unique' '[null]'
+  assert_field '[.counts[].status] | unique' '[null]'
 }
 
 @test "an empty allowlist array means the allowlist is disabled" {
@@ -43,6 +43,7 @@ assert_field() {
   assert_field '.allowlist_enabled' false
   assert_field '.has_violations' false
   assert_field '[.packages[].allowed] | unique' '[null]'
+  assert_field '[.counts[].status] | unique' '[null]'
 }
 
 @test "allowed is true when at least one license of the package is in the allowlist" {
@@ -85,10 +86,28 @@ assert_field() {
   assert_field '[.counts[] | "\(.license)=\(.count)"] | join(",")' 'MIT=2,UNKNOWN=2,Apache-2.0=1,GPL-2.0-or-later=1,GPL-3.0-only=1'
 }
 
-@test "counts carry the allowlist verdict of their license" {
+@test "counts status: allowed when listed, blocking when a package fails through it, alternative otherwise" {
   audit mixed.json '["MIT","Apache-2.0"]'
-  assert_field '.counts[] | select(.license == "MIT") | .allowed' true
-  assert_field '.counts[] | select(.license == "GPL-3.0-only") | .allowed' false
+  assert_field '.counts[] | select(.license == "MIT") | .status' allowed
+  assert_field '.counts[] | select(.license == "GPL-3.0-only") | .status' blocking
+  assert_field '.counts[] | select(.license == "UNKNOWN") | .status' blocking
+  # GPL-2.0-or-later only occurs on vendor/dual-licensed, which passes through MIT.
+  assert_field '.counts[] | select(.license == "GPL-2.0-or-later") | .status' alternative
+}
+
+@test "a license is blocking as soon as one of its carriers has no allowed license" {
+  # MIT is on vendor/mit-only (fails) and vendor/dual-licensed (passes through GPL-2.0-or-later).
+  audit mixed.json '["GPL-2.0-or-later"]'
+  assert_field '.counts[] | select(.license == "MIT") | .status' blocking
+  assert_field '.packages[] | select(.name == "vendor/dual-licensed") | .allowed' true
+}
+
+@test "a blocking license exists exactly when there are violations" {
+  local allowlist
+  for allowlist in '["MIT","Apache-2.0"]' '["Apache-2.0"]' '["GPL-2.0-or-later"]' '["MIT","Apache-2.0","GPL-2.0-or-later","GPL-3.0-only","UNKNOWN"]'; do
+    audit mixed.json "$allowlist"
+    assert_field 'any(.counts[]; .status == "blocking") == .has_violations' true
+  done
 }
 
 @test "is_new marks packages absent from the base composer.lock" {

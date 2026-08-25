@@ -8,9 +8,12 @@
 #   allowlist_enabled  bool
 #   base_available     bool   (a base lock with at least one package)
 #   packages[]         {name, version, licenses[], allowed, is_new}   sorted by name
-#   counts[]           {license, count, allowed}                       sorted by -count, license
+#   counts[]           {license, count, status}                        sorted by -count, license
 #   has_violations     bool   (false whenever the allowlist is disabled)
-# `allowed` and `is_new` are null when the corresponding input is absent.
+# `allowed`, `status` and `is_new` are null when the corresponding input is absent.
+# `status` of a license: "allowed" (in the allowlist), "blocking" (not in the allowlist and carried
+# by at least one package that is not allowed), "alternative" (not in the allowlist, but every
+# package carrying it is allowed through another license).
 
 def normalize_license($licenses):
   if $licenses == null then ["UNKNOWN"]
@@ -49,7 +52,16 @@ base_names as $names
 | (
     $packages
     | map(.licenses) | flatten | sort | group_by(.)
-    | map({license: .[0], count: length, allowed: allowed_of([.[0]])})
+    | map(.[0] as $lic | {
+        license: $lic,
+        count: length,
+        status: (
+          if allowlist_enabled | not then null
+          elif allowed_of([$lic]) then "allowed"
+          elif any($packages[]; .allowed == false and any(.licenses[]; . == $lic)) then "blocking"
+          else "alternative"
+          end)
+      })
     | sort_by(-.count, .license)
   ) as $counts
 | {

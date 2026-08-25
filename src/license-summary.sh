@@ -116,10 +116,13 @@ if (( base_packages_available )); then
 fi
 
 # Row projections for the renderers: tab-separated, with the status icon already resolved.
-row_jq='def icon: if .allowed == null then "" elif .allowed then "✅" else "❌" end;'
-license_counts_tsv="$(jq -r "$row_jq"' .counts[] | "\(.license)\t\(.count)\t\(icon)"' <<<"$audit_json")"
-package_details_tsv="$(jq -r "$row_jq"' .packages[] | "\(.name)\t\(.version)\t\(.licenses | join(", "))\t\(icon)"' <<<"$audit_json")"
-new_packages_tsv="$(jq -r "$row_jq"' .packages[] | select(.is_new == true) | "\(.name)\t\(.version)\t\(.licenses | join(", "))\t\(icon)"' <<<"$audit_json")"
+package_icon_jq='def package_icon: if .allowed == null then "" elif .allowed then "✅" else "❌" end;'
+count_icon_jq='def count_icon: if .status == null then "" else ({allowed: "✅", blocking: "❌", alternative: "➖"}[.status] // "?") end;'
+license_counts_tsv="$(jq -r "$count_icon_jq"' .counts[] | "\(.license)\t\(.count)\t\(count_icon)"' <<<"$audit_json")"
+package_details_tsv="$(jq -r "$package_icon_jq"' .packages[] | "\(.name)\t\(.version)\t\(.licenses | join(", "))\t\(package_icon)"' <<<"$audit_json")"
+new_packages_tsv="$(jq -r "$package_icon_jq"' .packages[] | select(.is_new == true) | "\(.name)\t\(.version)\t\(.licenses | join(", "))\t\(package_icon)"' <<<"$audit_json")"
+# The step summary explains ➖ only when a row uses it.
+has_alternative_licenses="$(jq -r 'if any(.counts[]; .status == "alternative") then 1 else 0 end' <<<"$audit_json")"
 
 formatted_counts=$(printf '%s\n' "$license_counts_tsv" | awk -F '\t' '{printf "%-20s %s\n", $1, $2}')
 
@@ -187,6 +190,10 @@ if [[ -n "${GITHUB_STEP_SUMMARY:-}" ]]; then
       while IFS=$'\t' read -r license count status_icon; do
         echo "| ${license} | ${count} | ${status_icon} |"
       done <<< "$license_counts_tsv"
+      if (( has_alternative_licenses )); then
+        echo
+        echo "➖ not in the allowlist, but every package carrying it is allowed through another license."
+      fi
     else
       echo "| License | Count |"
       echo "| --- | --- |"

@@ -8,6 +8,7 @@ setup() {
 }
 
 ALLOWED=$'- MIT\n- Apache-2.0'
+ALL_ALLOWED=$'- MIT\n- Apache-2.0\n- GPL-2.0-or-later\n- GPL-3.0-only\n- UNKNOWN'
 
 # --- no allowlist -------------------------------------------------------------
 
@@ -114,9 +115,19 @@ ALLOWED=$'- MIT\n- Apache-2.0'
   assert_summary_contains "| MIT | 2 | ✅ |"
   assert_summary_contains "| GPL-3.0-only | 1 | ❌ |"
   assert_summary_contains "| vendor/gpl-only | v4.0.0 | GPL-3.0-only | ❌ |"
-  # The counts table judges each license on its own; the package table judges the package.
-  assert_summary_contains "| GPL-2.0-or-later | 1 | ❌ |"
+  # A license that only occurs next to an allowed one is not blocking.
+  assert_summary_contains "| GPL-2.0-or-later | 1 | ➖ |"
   assert_summary_contains "| vendor/dual-licensed | v3.1.0 | MIT, GPL-2.0-or-later | ✅ |"
+}
+
+@test "summary explains ➖ with a legend only when a license is merely an alternative" {
+  use_fixture mixed.json
+  run_audit false "$ALLOWED" true
+  assert_summary_contains "➖ not in the allowlist, but every package carrying it is allowed through another license."
+  : > "$GITHUB_STEP_SUMMARY"
+  run_audit false "$ALL_ALLOWED" true
+  assert_status 0
+  assert_summary_lacks "➖"
 }
 
 @test "summary lists the allowlist sorted and comma-separated" {

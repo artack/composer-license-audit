@@ -28,7 +28,7 @@
 - File naming: hyphen-separated for scripts (e.g., `license-summary.sh`); workflows in `.github/workflows` with descriptive filenames.
 
 ## Testing Guidelines
-- Run `bats tests` first; it is fast. `audit.bats` pins the audit result schema (tri-state `allowed`/`is_new`, sort orders, `has_violations`); `license-summary.bats` covers grouping, `UNKNOWN` normalization, allowlist parsing, `fail-hard`, `--locked` pass-through and the empty-project path; `pr-comment.bats` covers base comparison and comment create/update/paging against the API stub. Extend them when changing output formatting (expected rows are hardcoded, including padding) or the comment body.
+- Run `bats tests` first; it is fast. `audit.bats` pins the audit result schema (tri-state `allowed`/`is_new`, `counts[].status`, sort orders, `has_violations`); `license-summary.bats` covers grouping, `UNKNOWN` normalization, allowlist parsing, `fail-hard`, `--locked` pass-through and the empty-project path; `pr-comment.bats` covers base comparison and comment create/update/paging against the API stub. Extend them when changing output formatting (expected rows are hardcoded, including padding) or the comment body.
 - The Act run above (same command as in Build section) covers the real Composer project plus PR base comparison; ensure output matches expected license counts and alignment.
 - When changing `src/license-summary.sh`, test both modes (installed and `--locked`) and at least one package with multiple license entries to confirm grouping.
 - If supplying `allowed-licenses`, confirm ✅/❌ markers correctly flag packages outside the allowlist.

@@ -50,7 +50,7 @@ The runner needs `composer`, `jq`, `git` and `curl`. With `use-locked: "true"` n
 
 ## Output
 - **Workflow log**: license counts and one line per package with its version, licenses and ✅/❌ marker.
-- **Step summary**: the same data as Markdown tables (counts, all packages, and on pull requests the new packages), plus source (`installed packages` or `composer.lock (--locked)`), commit and the configured allowlist. The status column only appears when an allowlist is set.
+- **Step summary**: the same data as Markdown tables (counts, all packages, and on pull requests the new packages), plus source (`installed packages` or `composer.lock (--locked)`), commit and the configured allowlist. The status column only appears when an allowlist is set. In the counts table a license is ❌ only when it causes a violation; a license outside the allowlist that only occurs next to an allowed one is marked ➖ and explained by a legend.
 - **Exit code**: `1` when `fail-hard` is `true`, an allowlist is set and at least one package has no license in it; `0` otherwise.
 
 ## Pull request behavior
