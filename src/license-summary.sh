@@ -5,7 +5,7 @@ composer_path="${1:-composer}"
 use_locked="${2:-false}"
 allowed_raw="${3:-}"
 fail_hard="${4:-true}"
-ACTION_VERSION="0.0.2"
+ACTION_VERSION="0.1.0"
 GITHUB_SHA="${GITHUB_SHA:-}"
 
 [[ -z "$GITHUB_SHA" ]] && GITHUB_SHA="unknown"
