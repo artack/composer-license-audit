@@ -1,6 +1,6 @@
 name: License Audit with Composer
 author: Patrick Landolt
-description: Generate a license summary of Composer dependencies and print it to the workflow log.
+description: Summarize Composer dependency licenses in the log, the step summary and a pull request comment, and check them against an allowlist.
 inputs:
   composer-path:
     description: Path to the Composer executable.
